@@ -1,4 +1,5 @@
 import random
+from file1 import *
 
 def generate_polynomial(p, k):
     polynomial = [random.randint(0, p-1) for _ in range(k + 1)]
@@ -28,18 +29,16 @@ def polynomial_addition(polynomial1, polynomial2, p):
 
 def polynomial_division(dividend, divisor, p):
     while len(dividend) >= len(divisor):
-        coeff = dividend[0] // divisor[0]
-
+        coeff = (dividend[0] * module_inverse(divisor[0], p)) % p
+        
         for i in range(len(divisor)):
-            dividend[i] -= divisor[i] * coeff
-
+            dividend[i] = (dividend[i] - divisor[i] * coeff) % p
+        
         if dividend[0] == 0:
             dividend.pop(0)
-
-    for i in range(len(dividend)):
-        if dividend[i] != 0:
-            dividend[i] %= p
+    
     return dividend
+
 
 def polynomial_multiplication(polynomial1, polynomial2, irreducible_poly, p):
     product = [0] * (len(polynomial1) + len(polynomial2) - 1)
