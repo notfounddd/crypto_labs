@@ -88,7 +88,7 @@ def solovay_strassen(n, k=5):
         if jacobi == 0 or fast_exp_mod(a, (n - 1) // 2, n) != jacobi % n:
             return "Число n составное"
     return "Число n, вероятно, простое" 
-#4.3
+#5
 #Тест Миллера-Рабина
 def miller_rabin(n, k=5):
     if n < 5 or n % 2 == 0:
