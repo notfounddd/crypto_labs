@@ -1,4 +1,3 @@
-base64/base32
 import json
 
 def string_to_bits(string):
