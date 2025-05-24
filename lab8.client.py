@@ -5,11 +5,9 @@ from lab4 import *
 from lab5 import *
 from datetime import datetime
 
-
 __ID__ = "ZaparaAE"
 HOST = 'localhost'
 PORT = 65432
-
 
 def elgamal_sign(message: bytes, hashfunc, p, a, alpha):
     if hashfunc == "sha256":
@@ -23,19 +21,41 @@ def elgamal_sign(message: bytes, hashfunc, p, a, alpha):
 
     h = int(hash_(message), 16)
     while True:
-        k = random.randint(1, p - 2)
-        temp,_,_ = euclidean_algorithm(k, p - 1)
+        r = random.randint(1, p - 2)
+        temp, _, _ = euclidean_algorithm(r, p - 1)
         if temp == 1:
             break
-    r = fast_exp_mod(alpha, k, p)
-    k_inv = module_inverse(k, p - 1)
-    s = (k_inv * (h - a * r)) % (p - 1)
-    return (r, s)
+    
+    y = fast_exp_mod(alpha, r, p)
+    r_inv = module_inverse(r, p - 1)
+    b = (h - a * y) * r_inv % (p - 1)
+    
+    return (y, b)
 
+def elgamal_verify(message, signature, p, alpha, beta, hashfunc):
+    y, b = signature
+    if not (0 < y < p and 0 < b < p - 1):
+        return False
+
+    if hashfunc == "sha256":
+        hash_ = sha256
+    elif hashfunc == "sha512":
+        hash_ = sha512
+    elif hashfunc == "streebog256":
+        hash_ = streebog256
+    elif hashfunc == "streebog512":
+        hash_ = streebog512
+
+    h = int(hash_(message.encode('utf-8')), 16)
+
+    left = (fast_exp_mod(beta, y, p) * fast_exp_mod(y, b, p)) % p
+    right = fast_exp_mod(alpha, h, p)
+
+    return left == right
 
 def request_create(TypeHash, Algorithm, message):
-    p, alpha, a, b = generate_elgamal_keys(1024)
-    r, s = elgamal_sign(message, TypeHash, p, a, alpha)
+    p, alpha, a, beta = generate_elgamal_keys(512)
+    y, b = elgamal_sign(message, TypeHash, p, a, alpha)
 
     Client_request = {
         "CMSVersion": "1",
@@ -50,17 +70,13 @@ def request_create(TypeHash, Algorithm, message):
             "DigestAlgorithmIdentifiers": TypeHash,
             "SignatureAlgorithmIdentifier": Algorithm,
             "SignatureValue": {
-                "r": str(r),
-                "s": str(s)
+                "y": str(y),
+                "b": str(b)
             },
             "SubjectPublicKeyInfo": {
                 "p": str(p),
                 "alpha": str(alpha),
-                "b": str(b)
-            },
-            "UnsignedAttributes": {
-                "ObjectIdentifier": "signature-time-stamp",
-                "SET_OF_AttributeValue": ""
+                "beta": str(beta)
             }
         }
     }
@@ -111,12 +127,38 @@ def main():
 
     if response_all["status"] == "success":
         print(response_all["confirmation"])
+        
+        # Проверяем подпись сервера
+        server_response = response_all["response"]
+        server_signature = (
+            int(server_response["SignerInfos"]["UnsignedAttributes"]["SET_OF_AttributeValue"]["ServerSignature"]["y"]),
+            int(server_response["SignerInfos"]["UnsignedAttributes"]["SET_OF_AttributeValue"]["ServerSignature"]["b"])
+        )
+        server_pubkey = server_response["SignerInfos"]["UnsignedAttributes"]["SET_OF_AttributeValue"]["ServerPublicKeyInfo"]
+        server_hash = server_response["SignerInfos"]["UnsignedAttributes"]["DigestAlgorithmServer"]
+        
+        timestamp = server_response["SignerInfos"]["UnsignedAttributes"]["SET_OF_AttributeValue"]["Timestamp"]
+        
+        valid = elgamal_verify(
+            timestamp,
+            server_signature,
+            int(server_pubkey["p"]),
+            int(server_pubkey["alpha"]),
+            int(server_pubkey["beta"]),
+            server_hash
+        )
+        
+        if valid:
+            print("✅ Подпись сервера с временной меткой верна")
+            print(f"Временная метка: {timestamp}")
+        else:
+            print("❌ Подпись сервера недействительна")
+        
         with open("server_response.json", "w", encoding="utf-8") as f:
-            json.dump(response_all["response"], f, indent=4, ensure_ascii=False)
-        print("✅ Ответ сервера с временной меткой сохранён в server_response.json")
+            json.dump(server_response, f, indent=4, ensure_ascii=False)
+        print("✅ Ответ сервера сохранён в server_response.json")
     else:
         print(response_all["message"])
-
 
 if __name__ == "__main__":
     main()

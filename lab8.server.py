@@ -12,9 +12,9 @@ def create_utc_timestamp() -> str:
     now_utc = datetime.utcnow()
     return now_utc.strftime("%y%m%d%H%M%SZ")
 
-def elgamal_verify(message, signature, p, alpha, b, hashfunc):
-    r, s = signature
-    if not (0 < r < p and 0 < s < p - 1):
+def elgamal_verify(message, signature, p, alpha, beta, hashfunc):
+    y, b = signature
+    if not (0 < y < p and 0 < b < p - 1):
         return False
 
     if hashfunc == "sha256":
@@ -28,10 +28,10 @@ def elgamal_verify(message, signature, p, alpha, b, hashfunc):
 
     h = int(hash_(message.encode('utf-8')), 16)
 
-    v1 = (fast_exp_mod(b, r, p) * fast_exp_mod(r, s, p)) % p
-    v2 = fast_exp_mod(alpha, h, p)
+    left = (fast_exp_mod(beta, y, p) * fast_exp_mod(y, b, p)) % p
+    right = fast_exp_mod(alpha, h, p)
 
-    return v1 == v2
+    return left == right
 
 def elgamal_sign(message: bytes, hashfunc, p, a, alpha):
     if hashfunc == "sha256":
@@ -45,52 +45,48 @@ def elgamal_sign(message: bytes, hashfunc, p, a, alpha):
 
     h = int(hash_(message), 16)
     while True:
-        k = random.randint(1, p - 2)
-        temp,_,_ = euclidean_algorithm(k, p - 1)
+        r = random.randint(1, p - 2)
+        temp, _, _ = euclidean_algorithm(r, p - 1)
         if temp == 1:
             break
-    r = fast_exp_mod(alpha, k, p)
-    k_inv = module_inverse(k, p - 1)
-    s = (k_inv * (h - a * r)) % (p - 1)
-    return (r, s)
+    
+    y = fast_exp_mod(alpha, r, p)
+    r_inv = module_inverse(r, p - 1)
+    b = (h - a *y) * r_inv % (p - 1)
+    
+    return (y, b)
 
-
-
-def offer_create(TypeHash, Algorithm, message, user, signature, pubkey):
+def offer_create(client_data, server_hash):
     timestamp = create_utc_timestamp()
-
-    server_p, alpha, server_a, server_b = generate_elgamal_keys(1024)
-    r, s = elgamal_sign(timestamp.encode('utf-8'), TypeHash, server_p, server_a, alpha)
+    
+    # Генерируем ключи сервера
+    server_p, server_alpha, server_a, server_beta = generate_elgamal_keys(1024)
+    server_y, server_b = elgamal_sign(timestamp.encode('utf-8'), server_hash, server_p, server_a, server_alpha)
 
     Server_offer = {
         "CMSVersion": "1",
-        "DigestAlgorithmIdentifiers": TypeHash,
-        "EncapsulatedContentInfo": {
-            "ContentType": "Data",
-            "OCTET_STRING_OPTIONAL": message
-        },
+        "DigestAlgorithmIdentifiers": client_data["DigestAlgorithmIdentifiers"],
+        "EncapsulatedContentInfo": client_data["EncapsulatedContentInfo"],
         "SignerInfos": {
             "CMSVersion": "1",
-            "SignerIdentifier": user,
-            "DigestAlgorithmIdentifiers": TypeHash,
-            "SignatureAlgorithmIdentifier": Algorithm,
-            "SignatureValue": {
-                "r": str(signature[0]),
-                "s": str(signature[1])
-            },
-            "SubjectPublicKeyInfo": pubkey,
+            "SignerIdentifier": client_data["SignerInfos"]["SignerIdentifier"],
+            "DigestAlgorithmIdentifiers": client_data["DigestAlgorithmIdentifiers"],
+            "SignatureAlgorithmIdentifier": client_data["SignerInfos"]["SignatureAlgorithmIdentifier"],
+            "SignatureValue": client_data["SignerInfos"]["SignatureValue"],
+            "SubjectPublicKeyInfo": client_data["SignerInfos"]["SubjectPublicKeyInfo"],
             "UnsignedAttributes": {
+                "DigestAlgorithmServer": server_hash,
                 "ObjectIdentifier": "signature-time-stamp",
                 "SET_OF_AttributeValue": {
                     "Timestamp": timestamp,
                     "ServerSignature": {
-                        "r": str(r),
-                        "s": str(s)
+                        "y": str(server_y),
+                        "b": str(server_b)
                     },
                     "ServerPublicKeyInfo": {
                         "p": str(server_p),
-                        "alpha": str(alpha),
-                        "b": str(server_b)
+                        "alpha": str(server_alpha),
+                        "beta": str(server_beta)
                     }
                 }
             }
@@ -98,8 +94,9 @@ def offer_create(TypeHash, Algorithm, message, user, signature, pubkey):
     }
     return Server_offer
 
-
 def main():
+    hash_options = ["sha256", "sha512", "streebog256", "streebog512"]
+    
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         s.bind((HOST, PORT))
         s.listen()
@@ -110,27 +107,33 @@ def main():
             print(f"✅ Подключен клиент: {addr}")
             data = conn.recv(8192)
             try:
-                json_data = json.loads(data.decode("utf-8"))
+                client_data = json.loads(data.decode("utf-8"))
             except Exception as e:
-                conn.sendall("❌ Ошибка при разборе JSON".encode("utf-8"))
+                conn.sendall(json.dumps({
+                    "status": "error",
+                    "message": "❌ Ошибка при разборе JSON"
+                }).encode("utf-8"))
                 return
 
             try:
-                TypeHash = json_data["DigestAlgorithmIdentifiers"]
-                message = json_data["EncapsulatedContentInfo"]["OCTET_STRING_OPTIONAL"]
-                r = int(json_data["SignerInfos"]["SignatureValue"]["r"])
-                s_val = int(json_data["SignerInfos"]["SignatureValue"]["s"])
-                pubkey = json_data["SignerInfos"]["SubjectPublicKeyInfo"]
+                TypeHash = client_data["DigestAlgorithmIdentifiers"]
+                message = client_data["EncapsulatedContentInfo"]["OCTET_STRING_OPTIONAL"]
+                y = int(client_data["SignerInfos"]["SignatureValue"]["y"])
+                b = int(client_data["SignerInfos"]["SignatureValue"]["b"])
+                pubkey = client_data["SignerInfos"]["SubjectPublicKeyInfo"]
                 p = int(pubkey["p"])
                 alpha = int(pubkey["alpha"])
-                b = int(pubkey["b"])
-                user = json_data["SignerInfos"]["SignerIdentifier"]
+                beta = int(pubkey["beta"])
+                user = client_data["SignerInfos"]["SignerIdentifier"]
 
-                valid = elgamal_verify(message, (r, s_val), p, alpha, b, TypeHash)
+                valid = elgamal_verify(message, (y, b), p, alpha, beta, TypeHash)
                 print(f"Результат проверки подписи: {valid}")
 
                 if valid:
-                    response = offer_create(TypeHash, "ElGamal", message, user, (r, s_val), pubkey)
+                    # Случайно выбираем хэш-функцию для сервера
+                    server_hash = random.choice(hash_options)
+                    response = offer_create(client_data, server_hash)
+                    
                     conn.sendall(json.dumps({
                         "status": "success",
                         "confirmation": "✅ Подпись верна",
@@ -146,7 +149,6 @@ def main():
                     "status": "error",
                     "message": f"❌ Ошибка обработки запроса: {str(e)}"
                 }).encode("utf-8"))
-
 
 if __name__ == "__main__":
     main()
