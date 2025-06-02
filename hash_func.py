@@ -515,9 +515,9 @@ def aes_decrypt(bit_key, ciphertext_hex):
 def gen_rand_bits(length=128):
     return ''.join([str(random.randint(0, 1)) for _ in range(length)])
 
-
-
-
+def rand(size=512):
+    padd = generate_prime(size)
+    return padd
 
 
 
