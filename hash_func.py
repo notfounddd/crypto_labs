@@ -497,6 +497,8 @@ def isprime(n, k=40):
     
     return True
 
+
+#aes
 def aes_encrypt(bit_key, plaintext):
     byte_key = int(bit_key, 2).to_bytes(16, byteorder='big')
     if isinstance(plaintext, str):
@@ -515,14 +517,45 @@ def aes_decrypt(bit_key, ciphertext_hex):
 def gen_rand_bits(length=128):
     return ''.join([str(random.randint(0, 1)) for _ in range(length)])
 
-def rand(size=512):
-    padd = generate_prime(size)
-    return padd
+# RSA
+def pkcs7_pad(message, block_size):
+    padding_len = block_size - (len(message) % block_size)
+    padding = chr(padding_len) * padding_len
+    return message + padding
+
+def pkcs7_unpad(message):
+    padding_len = ord(message[-1])
+    return message[:-padding_len]
+
+def split_blocks(message, block_size):
+    return [message[i:i + block_size] for i in range(0, len(message), block_size)]
+
+def encrypt(message, n, e):
+    block_size = (len(bin(n)) - 2) // 8 - 1
+    padded_message = pkcs7_pad(message, block_size)
+
+    blocks = split_blocks(padded_message, block_size)
+    
+    ciphertext = [hex(fast_exp_mod(int.from_bytes(block.encode('utf-8'), byteorder='big'), e, n)) for block in blocks]
+    return ciphertext
+
+def decrypt(ciphertext, n, d):
+    blocks = []
+    for c in ciphertext:
+        decrypted_block = fast_exp_mod(int(c, 16), d, n)
+        block_size = (decrypted_block.bit_length() + 7) // 8
+        blocks.append(decrypted_block.to_bytes(block_size, byteorder='big').decode('utf-8'))
+        
+    padded_message = ''.join(blocks)
+    return pkcs7_unpad(padded_message)
 
 
 
 
 
+
+
+ 
 
 
 
