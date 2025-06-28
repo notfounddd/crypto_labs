@@ -1,0 +1,14 @@
+[
+    {
+        "id": "user_12121",
+        "i": 1,
+        "hash_type": "stribog256",
+        "hash": "121"
+    },
+    {
+        "id": "user_100",
+        "i": 1,
+        "hash_type": "sha256",
+        "hash": "7c2b1aad5b6fed213b8441903df31d383474a4687aeaa51d18ba177439573a1a"
+    }
+]
